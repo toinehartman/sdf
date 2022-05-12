@@ -132,3 +132,63 @@ rules
    ctx-ast      := <get-contextual-grammar> project-path;
    filename     := <get-src-gen(|project-path, "syntax", ".sdf3_")> "contextualGrammar";
    result       := <pp-SDF3-string> ctx-ast
+
+strategies
+
+  generate-desugar-variable-sections:
+    (selected, position, ast, path, project-path) -> (filename, result)
+  with
+    filename := path
+  ; result   := <desugar-vars; pp-SDF3-string> ast
+
+  desugar-vars = Module(id, id, repeat(list-some(desugar-var-production); flatten-list, filter(not(?SDFSection(VariablesProductive([]))))))
+
+overlays
+
+  VAR_SUFFIX = "Var"
+  LISTVAR_SUFFIX = "ListVar"
+
+rules
+
+  desugar-var-production: // simple production
+    SDFSection(VariablesProductive([SdfProduction(SortDef(sortname), rhs, attrs) | prods])) ->
+    [
+      SDFSection(LexSorts([varname]))
+    , SDFSection(LexicalSyntax([SdfProduction(SortDef(varname), rhs, attrs)]))
+    , SDFSection(ContextFreeSyntax(
+      [
+        SdfProductionWithCons(
+          SortCons(SortDef(sortname), Constructor("meta-var"))
+        , Rhs([Sort(varname)])
+        , NoAttrs()
+        )
+      ]))
+    , SDFSection(VariablesProductive(prods))
+    ]
+  where <not(string-ends-with(|VAR_SUFFIX))> sortname
+  with varname := <conc-strings> (sortname, VAR_SUFFIX())
+
+  desugar-var-production: // list production
+    SDFSection(VariablesProductive([SdfProduction(iter, rhs, attrs) | prods])) ->
+    [
+      SDFSection(LexSorts([varname]))
+    , SDFSection(LexicalSyntax([SdfProduction(SortDef(varname), rhs, attrs)]))
+    , SDFSection(ContextFreeSyntax(
+      [
+        SdfProductionWithCons(
+          SortCons(iter, Constructor("meta-listvar"))
+        , Rhs([Sort(varname)])
+        , NoAttrs()
+        )
+      , SdfProductionWithCons(
+          SortCons(iter, Constructor("Snoc"))
+        , Rhs([iter, Sort(varname)])
+        , NoAttrs()
+        )
+      ]))
+    , SDFSection(VariablesProductive(prods))
+    ]
+  where
+    sortname := <?Iter(Sort(<id>)) + ?IterStar(Sort(<id>)) + ?IterSep(Sort(<id>), _) + ?IterStarSep(Sort(<id>), _)> iter
+  ; <not(string-ends-with(|LISTVAR_SUFFIX))> sortname
+  with varname := <conc-strings> (sortname, LISTVAR_SUFFIX())
